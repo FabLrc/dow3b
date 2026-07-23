@@ -19,11 +19,18 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Dependances du client natif Dofus 3 (Ankama Launcher = Electron/Chromium ;
 # le jeu = Unity/OpenGL/Vulkan). Noms cibles Ubuntu 24.04 "Noble" (transition
-# t64). On lance l'AppImage via --appimage-extract-and-run => pas besoin de FUSE.
+# t64). On N'EXECUTE PAS l'AppImage : on extrait son squashfs au build (voir
+# plus bas) puis on lance directement le binaire interne. Cela evite FUSE ET
+# surtout le "exec format error" du runtime AppImage sous emulation Rosetta
+# (Mac Apple Silicon), ou --appimage-extract-and-run echoue aussi.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
+        # --- Extraction de l'AppImage (sans FUSE ni exec du runtime) ---
+        # binutils -> readelf (offset du squashfs) ; squashfs-tools -> unsquashfs.
+        binutils \
+        squashfs-tools \
         # --- Rendu Unity : Mesa GL + Vulkan (llvmpipe en fallback CPU) ---
         libgl1-mesa-dri \
         libglx-mesa0 \
@@ -56,8 +63,8 @@ RUN apt-get update && \
         # --- Polices (evite le rendu casse du launcher) ---
         fonts-liberation \
         fonts-noto-core && \
-    # Telechargement du launcher (best-effort ; le script autostart prend aussi
-    # en charge un AppImage depose dans /config si celui-ci echoue).
+    # Telechargement + extraction du launcher (best-effort ; le script autostart
+    # prend aussi en charge un AppImage depose dans /config si celui-ci echoue).
     mkdir -p /opt/ankama && \
     # NB: le WAF Ankama exige un User-Agent "navigateur" contenant AppleWebKit,
     # sinon il renvoie 403 (un simple "Mozilla/5.0 (X11; Linux x86_64)" ne suffit
@@ -65,9 +72,15 @@ RUN apt-get update && \
     ( curl -fSL --retry 3 \
         -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36" \
         -b /tmp/ankama-ck -c /tmp/ankama-ck \
-        "${ANKAMA_APPIMAGE_URL}" -o /opt/ankama/Ankama-Launcher.AppImage && \
-      chmod +x /opt/ankama/Ankama-Launcher.AppImage ) || \
-      echo "AVERTISSEMENT: telechargement de l'AppImage echoue au build ; deposez-le dans /config/Ankama-Launcher.AppImage" && \
+        "${ANKAMA_APPIMAGE_URL}" -o /tmp/Ankama-Launcher.AppImage && \
+      # Extraction du squashfs SANS executer le runtime AppImage. Un AppImage
+      # type-2 = [runtime ELF][squashfs appended] ; le squashfs commence a la fin
+      # de la table des sections de l'ELF (e_shoff + e_shnum*e_shentsize). On lit
+      # ces champs avec readelf, puis on decompresse avec unsquashfs.
+      off="$(readelf -h /tmp/Ankama-Launcher.AppImage | awk '/Start of section headers/{a=$5}/Size of section headers/{b=$5}/Number of section headers/{c=$5}END{print a+b*c}')" && \
+      unsquashfs -o "$off" -d /opt/ankama/app -f /tmp/Ankama-Launcher.AppImage && \
+      rm -f /tmp/Ankama-Launcher.AppImage ) || \
+      echo "AVERTISSEMENT: telechargement/extraction de l'AppImage echoue au build ; deposez-le dans /config/Ankama-Launcher.AppImage" && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 

@@ -38,10 +38,17 @@ done
 section "A. Script autostart"
 is_exec root/defaults/autostart
 contains root/defaults/autostart '^#!/bin/sh'                  "autostart : shebang sh (POSIX, pas de bashismes)"
-contains root/defaults/autostart '--appimage-extract-and-run' "autostart : lancement sans FUSE"
+contains root/defaults/autostart 'AppRun'                      "autostart : lance l'AppRun extrait (pas le runtime AppImage)"
 contains root/defaults/autostart '--no-sandbox'               "autostart : Chromium sans sandbox"
 contains root/defaults/autostart '/config/Ankama-Launcher\.AppImage' "autostart : fallback AppImage persistant"
-contains root/defaults/autostart '/opt/ankama/Ankama-Launcher\.AppImage' "autostart : AppImage embarquee"
+contains root/defaults/autostart '/opt/ankama/app'            "autostart : AppDir embarquee (extraite au build)"
+# Ne doit PAS reintroduire l'exec direct de l'AppImage : casse sous Rosetta (Mac ARM).
+# (On ignore les commentaires : le "pourquoi" mentionne le flag a titre explicatif.)
+if grep -vE '^[[:space:]]*#' root/defaults/autostart | grep -Eq -- '--appimage-extract-and-run'; then
+  no "autostart : ne doit pas executer le runtime AppImage (echec 'exec format error' sous Rosetta)"
+else
+  ok "autostart : n'execute pas le runtime AppImage"
+fi
 
 # ============================================================
 section "A. Dockerfile"
@@ -52,6 +59,8 @@ contains Dockerfile 'EXPOSE 3000 3001'                            "Dockerfile : 
 contains Dockerfile 'mesa-vulkan-drivers'                         "Dockerfile : rendu Vulkan (Unity)"
 contains Dockerfile 'libgtk-3-0t64'                               "Dockerfile : runtime GTK/Electron (Noble t64)"
 contains Dockerfile 'libnss3'                                     "Dockerfile : runtime Chromium"
+contains Dockerfile 'squashfs-tools'                              "Dockerfile : unsquashfs (extraction AppImage)"
+contains Dockerfile 'unsquashfs'                                  "Dockerfile : extraction du squashfs au build"
 
 # ============================================================
 section "A. docker-compose (base)"

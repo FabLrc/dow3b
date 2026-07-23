@@ -7,26 +7,55 @@
 # dash sur la base Ubuntu). NE PAS utiliser de bashismes ("set -o pipefail",
 # "[[ ... ]]", etc.) : dash echoue dessus et la session part en ecran noir sans
 # jamais lancer le launcher.
+#
+# POURQUOI ON N'EXECUTE PAS L'APPIMAGE DIRECTEMENT :
+# sur un hote ARM (Mac Apple Silicon), le conteneur linux/amd64 tourne sous
+# emulation Rosetta. Or le runtime d'un AppImage type-2 n'est PAS pris en charge
+# par le binfmt de Rosetta (magic "AI" a l'offset 8 de l'ELF + type ET_EXEC) :
+# l'exec echoue en "exec format error", AVANT meme que --appimage-extract-and-run
+# soit interprete. On extrait donc le squashfs (au build, cf. Dockerfile) et on
+# lance le binaire Electron interne (zaap, un ELF ET_DYN classique) via AppRun :
+# celui-la, Rosetta sait l'emuler (comme openbox, Xvfb...).
 
 set -eu
 
-# Emplacement persistant prioritaire : un AppImage depose par l'utilisateur dans
-# le volume /config a la main l'emporte sur celui embarque a la construction
-# (utile si l'URL de build a echoue ou pour epingler une version precise).
-LAUNCHER_PERSIST="/config/Ankama-Launcher.AppImage"
-LAUNCHER_BAKED="/opt/ankama/Ankama-Launcher.AppImage"
+BAKED_APPDIR="/opt/ankama/app"                        # AppImage extrait au build
+PERSIST_APPIMAGE="/config/Ankama-Launcher.AppImage"   # override utilisateur (AppImage brut)
+PERSIST_APPDIR="/config/.ankama-app"                  # cache d'extraction de l'override
 
-if [ -x "${LAUNCHER_PERSIST}" ]; then
-    LAUNCHER="${LAUNCHER_PERSIST}"
-elif [ -x "${LAUNCHER_BAKED}" ]; then
-    LAUNCHER="${LAUNCHER_BAKED}"
+# Extrait un AppImage type-2 SANS executer son runtime (cf. explication ci-dessus).
+# Le squashfs appended commence a la fin de la table des sections de l'ELF :
+# offset = e_shoff + e_shnum * e_shentsize (lus via readelf).
+extract_appimage() {
+    _img="$1"
+    _dest="$2"
+    _off="$(readelf -h "${_img}" | awk '
+        /Start of section headers/  {a=$5}
+        /Size of section headers/   {b=$5}
+        /Number of section headers/ {c=$5}
+        END { print a + b * c }')"
+    rm -rf "${_dest}"
+    unsquashfs -o "${_off}" -d "${_dest}" -f "${_img}" >/dev/null
+}
+
+# Choix de l'AppDir a lancer. Un AppImage depose a la main dans /config l'emporte
+# (utile pour epingler une version) ; comme on ne peut pas l'executer directement,
+# on l'extrait (et on reutilise le cache tant qu'il est a jour).
+if [ -f "${PERSIST_APPIMAGE}" ]; then
+    if [ ! -x "${PERSIST_APPDIR}/AppRun" ] || [ "${PERSIST_APPIMAGE}" -nt "${PERSIST_APPDIR}/AppRun" ]; then
+        extract_appimage "${PERSIST_APPIMAGE}" "${PERSIST_APPDIR}"
+    fi
+    APPDIR="${PERSIST_APPDIR}"
+elif [ -x "${BAKED_APPDIR}/AppRun" ]; then
+    APPDIR="${BAKED_APPDIR}"
 else
-    # Rien de disponible : on affiche un message clair dans la fenetre web
-    # plutot qu'un bureau vide.
+    # Rien de disponible : message clair dans la fenetre web plutot qu'un bureau vide.
     exec xmessage -center \
-        "Ankama Launcher introuvable. Deposez l'AppImage dans /config/Ankama-Launcher.AppImage puis redemarrez le conteneur."
+        "Ankama Launcher introuvable. Deposez l'AppImage dans ${PERSIST_APPIMAGE} puis redemarrez le conteneur."
 fi
 
-# --appimage-extract-and-run : execute sans FUSE (pas de /dev/fuse ni privileges).
+# On reproduit ce que fait le runtime AppImage : definir APPDIR/APPIMAGE puis
+# laisser AppRun preparer l'environnement (LD_LIBRARY_PATH, PATH, XDG_DATA_DIRS...)
+# et exec le binaire interne zaap.
 # --no-sandbox : le bac a sable Chromium/Electron ne fonctionne pas en conteneur.
-exec "${LAUNCHER}" --appimage-extract-and-run --no-sandbox
+exec env APPDIR="${APPDIR}" APPIMAGE="${APPDIR}/AppRun" "${APPDIR}/AppRun" --no-sandbox
