@@ -8,10 +8,15 @@
 
 services:
   dofus:
+    # Le launcher et le client Dofus 3 sont des binaires Linux x86_64 uniquement.
+    # On epingle donc l'archi : natif sur un hote x86_64, EMULE sur un hote ARM
+    # (ex. Mac Apple Silicon). Sur Mac, activez "Use Rosetta for x86/amd64
+    # emulation" dans Docker Desktop (Settings > General) pour des perfs viables.
+    platform: linux/amd64
     build:
       context: .
       # args:
-      #   ANKAMA_APPIMAGE_URL: "https://.../Ankama%20Launcher-x86_64.AppImage"
+      #   ANKAMA_APPIMAGE_URL: "https://download.ankama.com/launcher-dofus/full/linux"
     image: dow3b/dofus:latest
     container_name: dofus
     restart: unless-stopped

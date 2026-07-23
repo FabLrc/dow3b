@@ -8,9 +8,12 @@
 # Tag de base epingle (voir README pour changer d'arch/distro).
 FROM ghcr.io/linuxserver/baseimage-selkies:ubuntunoble
 
-# URL de l'AppImage de l'Ankama Launcher. Peut changer cote Ankama : surchargez
-# avec --build-arg ANKAMA_APPIMAGE_URL=... si le telechargement echoue.
-ARG ANKAMA_APPIMAGE_URL="https://launcher.cdn.ankama.com/installers/production/Ankama%20Launcher-x86_64.AppImage"
+# Point d'entree de telechargement du launcher Dofus (Linux x86_64). Cette URL
+# renvoie un 302 (+ cookie de session) vers l'AppImage courant, actuellement
+# "Dofus 3.0-Setup-x86_64.AppImage" ; le nom exact peut changer cote Ankama,
+# d'ou l'usage de la redirection plutot que d'un lien direct (qui renvoie 403).
+# Surchargez avec --build-arg ANKAMA_APPIMAGE_URL=... si besoin.
+ARG ANKAMA_APPIMAGE_URL="https://download.ankama.com/launcher-dofus/full/linux"
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -56,7 +59,13 @@ RUN apt-get update && \
     # Telechargement du launcher (best-effort ; le script autostart prend aussi
     # en charge un AppImage depose dans /config si celui-ci echoue).
     mkdir -p /opt/ankama && \
-    ( curl -fSL "${ANKAMA_APPIMAGE_URL}" -o /opt/ankama/Ankama-Launcher.AppImage && \
+    # NB: le WAF Ankama exige un User-Agent "navigateur" contenant AppleWebKit,
+    # sinon il renvoie 403 (un simple "Mozilla/5.0 (X11; Linux x86_64)" ne suffit
+    # PAS ; "curl/x" non plus).
+    ( curl -fSL --retry 3 \
+        -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36" \
+        -b /tmp/ankama-ck -c /tmp/ankama-ck \
+        "${ANKAMA_APPIMAGE_URL}" -o /opt/ankama/Ankama-Launcher.AppImage && \
       chmod +x /opt/ankama/Ankama-Launcher.AppImage ) || \
       echo "AVERTISSEMENT: telechargement de l'AppImage echoue au build ; deposez-le dans /config/Ankama-Launcher.AppImage" && \
     apt-get clean && \

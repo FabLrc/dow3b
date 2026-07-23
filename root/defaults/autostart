@@ -1,9 +1,14 @@
-#!/bin/bash
+#!/bin/sh
 # Lance au demarrage de la session Openbox (mecanisme baseimage-selkies).
 # Cette unique application occupe le "bureau" web : l'Ankama Launcher, d'ou
 # l'utilisateur se connecte, telecharge puis lance Dofus.
+#
+# IMPORTANT : ce fichier est execute par le shell POSIX du systeme (/bin/sh =
+# dash sur la base Ubuntu). NE PAS utiliser de bashismes ("set -o pipefail",
+# "[[ ... ]]", etc.) : dash echoue dessus et la session part en ecran noir sans
+# jamais lancer le launcher.
 
-set -euo pipefail
+set -eu
 
 # Emplacement persistant prioritaire : un AppImage depose par l'utilisateur dans
 # le volume /config a la main l'emporte sur celui embarque a la construction
@@ -11,9 +16,9 @@ set -euo pipefail
 LAUNCHER_PERSIST="/config/Ankama-Launcher.AppImage"
 LAUNCHER_BAKED="/opt/ankama/Ankama-Launcher.AppImage"
 
-if [[ -x "${LAUNCHER_PERSIST}" ]]; then
+if [ -x "${LAUNCHER_PERSIST}" ]; then
     LAUNCHER="${LAUNCHER_PERSIST}"
-elif [[ -x "${LAUNCHER_BAKED}" ]]; then
+elif [ -x "${LAUNCHER_BAKED}" ]; then
     LAUNCHER="${LAUNCHER_BAKED}"
 else
     # Rien de disponible : on affiche un message clair dans la fenetre web
