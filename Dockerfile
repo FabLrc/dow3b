@@ -73,14 +73,24 @@ RUN apt-get update && \
 
 # --- Navigateur externe pour le flux de connexion du launcher ---------------
 # L'Ankama Launcher delegue certaines etapes de connexion (page d'autorisation
-# / 2FA "Connexion securisee") au navigateur SYSTEME via xdg-open. Sans
-# navigateur installe, ces liens n'ouvrent rien et la connexion reste bloquee.
+# / 2FA "Connexion securisee") au navigateur SYSTEME via xdg-open (c'est ce
+# qu'appelle Electron shell.openExternal). Sans navigateur installe, ces liens
+# n'ouvrent rien et la connexion reste bloquee.
 #
 # On installe Google Chrome (.deb officiel, amd64 uniquement -> coherent avec
 # "platform: linux/amd64") : c'est le choix Chrome-family le plus fiable ici.
 # Sur Ubuntu 24.04 "Noble", apt "chromium"/"chromium-browser" ne sont que des
 # stubs snap (exigent snapd, casses en conteneur), d'ou Chrome plutot que ceux-la.
 # La plupart de ses dependances runtime sont deja tirees par le launcher ci-dessus.
+#
+# PIEGE (verifie) : Chrome DOIT etre lance avec --no-sandbox en conteneur, sinon
+# le bac a sable ne s'initialise pas et le process meurt aussitot (rien ne
+# s'ouvre). Or Chrome s'auto-enregistre comme handler par defaut de
+# x-scheme-handler/https ET pose un .desktop dont l'Exec est
+# "/usr/bin/google-chrome-stable %U" (SANS --no-sandbox). xdg-open (xdg-utils
+# 1.1.3 de Noble) resout un lien http(s) via ce handler MIME et lance donc Chrome
+# SANS --no-sandbox : $BROWSER et l'alternative x-www-browser sont ignores.
+# => On force le handler MIME (et les alternatives) vers un wrapper --no-sandbox.
 RUN curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
         -o /usr/share/keyrings/google-chrome.asc && \
     echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.asc] https://dl.google.com/linux/chrome/deb/ stable main" \
@@ -93,13 +103,36 @@ RUN curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
     printf '#!/bin/sh\nexec /usr/bin/google-chrome-stable --no-sandbox --no-first-run --no-default-browser-check --password-store=basic "$@"\n' \
         > /usr/local/bin/dofus-browser && \
     chmod +x /usr/local/bin/dofus-browser && \
-    # Enregistre le wrapper comme navigateur par defaut (xdg-open / sensible-browser).
-    update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/local/bin/dofus-browser 100 && \
-    update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser /usr/local/bin/dofus-browser 100 && \
+    # .desktop maison dont l'Exec passe par le wrapper : c'est LUI que xdg-open
+    # lancera via le handler MIME (contrairement au .desktop Chrome sans sandbox).
+    printf '%s\n' \
+        '[Desktop Entry]' \
+        'Version=1.0' \
+        'Type=Application' \
+        'Name=Dofus Browser' \
+        'Exec=/usr/local/bin/dofus-browser %U' \
+        'Terminal=false' \
+        'NoDisplay=true' \
+        'MimeType=x-scheme-handler/http;x-scheme-handler/https;text/html;' \
+        'Categories=Network;WebBrowser;' \
+        > /usr/share/applications/dofus-browser.desktop && \
+    # Handler MIME par defaut pour http/https. /etc/xdg est prioritaire sur le
+    # /usr/share/applications/mimeapps.list ecrit par Chrome => notre wrapper gagne.
+    printf '%s\n' \
+        '[Default Applications]' \
+        'x-scheme-handler/http=dofus-browser.desktop' \
+        'x-scheme-handler/https=dofus-browser.desktop' \
+        'text/html=dofus-browser.desktop' \
+        > /etc/xdg/mimeapps.list && \
+    # Alternatives prioritaires sur Chrome (priorite 200) pour les chemins qui
+    # passent par x-www-browser / gnome-www-browser / sensible-browser.
+    update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/local/bin/dofus-browser 300 && \
+    update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser /usr/local/bin/dofus-browser 300 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# xdg-open et Electron (shell.openExternal) respectent $BROWSER en priorite.
+# xdg-open et Electron (shell.openExternal) : $BROWSER en dernier recours ; le
+# handler MIME ci-dessus reste la voie principale de resolution.
 ENV BROWSER=/usr/local/bin/dofus-browser
 
 # Scripts et defaults (autostart) injectes par la couche s6 de la base.
