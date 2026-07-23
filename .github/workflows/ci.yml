@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  static-tests:
+    name: Tests statiques (sans build)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Active le niveau C des tests. shellcheck et docker compose v2 sont deja
+      # presents sur les runners ubuntu-latest ; on ajoute yamllint et hadolint.
+      - name: Installer les linters (yamllint, hadolint)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends yamllint
+          HADOLINT_VERSION="v2.12.0"
+          sudo curl -fsSL -o /usr/local/bin/hadolint \
+            "https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}/hadolint-Linux-x86_64"
+          sudo chmod +x /usr/local/bin/hadolint
+          echo "--- versions ---"
+          shellcheck --version | head -n2
+          yamllint --version
+          hadolint --version
+          docker compose version
+
+      - name: Lancer la suite de tests (niveaux A + B + C)
+        run: ./tests/run-tests.sh

@@ -1,0 +1,8 @@
+# Config hadolint (lue automatiquement par `hadolint Dockerfile`).
+# On ne fait echouer que sur les ERREURS : les warnings de style ne cassent pas
+# le CI (image de base tierce + cible mouvante).
+failure-threshold: error
+ignored:
+  # Versions apt volontairement non epinglees : le launcher/jeu evolue,
+  # figer les versions rendrait l'image cassante.
+  - DL3008

@@ -100,7 +100,13 @@ make test        # ou : ./tests/run-tests.sh
   valide et fusionne le YAML **sans build ni pull** (exécuté si Docker est présent).
 - **Niveau C** — `shellcheck` / `hadolint` / `yamllint` si installés, sinon SKIP.
 
-Code retour ≠ 0 si un test échoue → intégrable en CI.
+Code retour ≠ 0 si un test échoue.
+
+Ces tests tournent en **CI** à chaque push/PR via
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) : le runner installe
+`yamllint` + `hadolint` (shellcheck et Docker sont déjà présents) puis exécute
+`./tests/run-tests.sh` — les 3 niveaux sont donc actifs, sans jamais build
+l'image applicative.
 
 ## Dépannage
 
@@ -125,6 +131,8 @@ Code retour ≠ 0 si un test échoue → intégrable en CI.
 | `Caddyfile` | Reverse proxy HTTPS. |
 | `.env.example` | Modèle de configuration. |
 | `tests/run-tests.sh` | Tests statiques (sans build ni lancement). |
+| `.github/workflows/ci.yml` | CI : lance les tests à chaque push/PR. |
+| `.hadolint.yaml` | Config du linter Dockerfile. |
 | `Makefile` | Raccourcis : `make test`, `make up`, `make up-dri`, `make up-nvidia`. |
 
 ## Notes
