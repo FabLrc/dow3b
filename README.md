@@ -84,6 +84,24 @@ redémarrage du conteneur, pas de re-téléchargement ni de re-login.
 L'accès est protégé par HTTP basic auth (`CUSTOM_USER`/`PASSWORD`) **par-dessus**
 HTTPS. Utilisez un mot de passe fort.
 
+## Tests (sans build ni lancement)
+
+Une suite de tests **statiques** valide la configuration sans construire l'image
+ni lancer le jeu :
+
+```bash
+make test        # ou : ./tests/run-tests.sh
+```
+
+- **Niveau A** — assertions statiques (présence/contenu des fichiers, autostart
+  exécutable + bons flags, cohérence Dockerfile, parité `${VAR}` ↔ `.env.example`,
+  `.gitignore` protège `.env`…). Zéro dépendance.
+- **Niveau B** — `docker compose config` sur la base + chaque override GPU :
+  valide et fusionne le YAML **sans build ni pull** (exécuté si Docker est présent).
+- **Niveau C** — `shellcheck` / `hadolint` / `yamllint` si installés, sinon SKIP.
+
+Code retour ≠ 0 si un test échoue → intégrable en CI.
+
 ## Dépannage
 
 - **Écran noir / launcher absent** : consultez `docker compose logs -f dofus`.
@@ -106,6 +124,8 @@ HTTPS. Utilisez un mot de passe fort.
 | `docker-compose.gpu-nvidia.yml` | Override GPU NVIDIA. |
 | `Caddyfile` | Reverse proxy HTTPS. |
 | `.env.example` | Modèle de configuration. |
+| `tests/run-tests.sh` | Tests statiques (sans build ni lancement). |
+| `Makefile` | Raccourcis : `make test`, `make up`, `make up-dri`, `make up-nvidia`. |
 
 ## Notes
 
