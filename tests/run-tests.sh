@@ -37,7 +37,7 @@ done
 # ============================================================
 section "A. Script autostart"
 is_exec root/defaults/autostart
-contains root/defaults/autostart '^#!/bin/bash'                 "autostart : shebang bash"
+contains root/defaults/autostart '^#!/bin/sh'                  "autostart : shebang sh (POSIX, pas de bashismes)"
 contains root/defaults/autostart '--appimage-extract-and-run' "autostart : lancement sans FUSE"
 contains root/defaults/autostart '--no-sandbox'               "autostart : Chromium sans sandbox"
 contains root/defaults/autostart '/config/Ankama-Launcher\.AppImage' "autostart : fallback AppImage persistant"
