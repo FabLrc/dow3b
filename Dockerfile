@@ -71,6 +71,37 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# --- Navigateur externe pour le flux de connexion du launcher ---------------
+# L'Ankama Launcher delegue certaines etapes de connexion (page d'autorisation
+# / 2FA "Connexion securisee") au navigateur SYSTEME via xdg-open. Sans
+# navigateur installe, ces liens n'ouvrent rien et la connexion reste bloquee.
+#
+# On installe Google Chrome (.deb officiel, amd64 uniquement -> coherent avec
+# "platform: linux/amd64") : c'est le choix Chrome-family le plus fiable ici.
+# Sur Ubuntu 24.04 "Noble", apt "chromium"/"chromium-browser" ne sont que des
+# stubs snap (exigent snapd, casses en conteneur), d'ou Chrome plutot que ceux-la.
+# La plupart de ses dependances runtime sont deja tirees par le launcher ci-dessus.
+RUN curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+        -o /usr/share/keyrings/google-chrome.asc && \
+    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.asc] https://dl.google.com/linux/chrome/deb/ stable main" \
+        > /etc/apt/sources.list.d/google-chrome.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends google-chrome-stable && \
+    # Wrapper : --no-sandbox (le bac a sable ne fonctionne pas en conteneur, comme
+    # pour le launcher) + --password-store=basic (pas de gnome-keyring/kwallet ici,
+    # evite un blocage au demarrage) + options non-interactives.
+    printf '#!/bin/sh\nexec /usr/bin/google-chrome-stable --no-sandbox --no-first-run --no-default-browser-check --password-store=basic "$@"\n' \
+        > /usr/local/bin/dofus-browser && \
+    chmod +x /usr/local/bin/dofus-browser && \
+    # Enregistre le wrapper comme navigateur par defaut (xdg-open / sensible-browser).
+    update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/local/bin/dofus-browser 100 && \
+    update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser /usr/local/bin/dofus-browser 100 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# xdg-open et Electron (shell.openExternal) respectent $BROWSER en priorite.
+ENV BROWSER=/usr/local/bin/dofus-browser
+
 # Scripts et defaults (autostart) injectes par la couche s6 de la base.
 COPY /root /
 
