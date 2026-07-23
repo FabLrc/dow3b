@@ -1,0 +1,9 @@
+# Secrets / config locale
+.env
+
+# Donnees locales eventuelles
+data/
+*.AppImage
+
+# OS
+.DS_Store

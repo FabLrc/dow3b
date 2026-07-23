@@ -1,0 +1,67 @@
+# Dofus dans le navigateur — stack de base (rendu logiciel, portable partout).
+#
+# Pour activer un GPU, ajoutez le fichier override correspondant :
+#   Intel/AMD : docker compose -f docker-compose.yml -f docker-compose.gpu-dri.yml up -d --build
+#   NVIDIA    : docker compose -f docker-compose.yml -f docker-compose.gpu-nvidia.yml up -d --build
+# Sans override, le conteneur tourne en rendu logiciel (llvmpipe) : fonctionne
+# partout, FPS reduits.
+
+services:
+  dofus:
+    build:
+      context: .
+      # args:
+      #   ANKAMA_APPIMAGE_URL: "https://.../Ankama%20Launcher-x86_64.AppImage"
+    image: dow3b/dofus:latest
+    container_name: dofus
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Europe/Paris}
+      # HTTP basic auth du bureau web (gere par le NGINX interne).
+      - CUSTOM_USER=${CUSTOM_USER:?definir CUSTOM_USER dans .env}
+      - PASSWORD=${PASSWORD:?definir PASSWORD dans .env}
+      - TITLE=${TITLE:-Dofus}
+      # Resolution / FPS du flux (verrouilles cote serveur).
+      - SELKIES_MANUAL_WIDTH=${RES_W:-1920}
+      - SELKIES_MANUAL_HEIGHT=${RES_H:-1080}
+      - SELKIES_FRAMERATE=${FRAMERATE:-60}
+      # Decommenter pour FORCER le rendu logiciel (debug / hote sans GPU) :
+      # - LIBGL_ALWAYS_SOFTWARE=1
+    volumes:
+      # Persiste launcher + session Ankama + jeu telecharge (~16 Go+).
+      - dofus-data:/config
+    # Unity + Electron ont besoin d'un /dev/shm confortable.
+    shm_size: "2gb"
+    # Expose au reverse proxy uniquement (pas de publication de port en clair).
+    expose:
+      - "3000"
+    networks:
+      - web
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: dofus-caddy
+    restart: unless-stopped
+    depends_on:
+      - dofus
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN:?definir DOMAIN dans .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - web
+
+networks:
+  web:
+
+volumes:
+  dofus-data:
+  caddy_data:
+  caddy_config:

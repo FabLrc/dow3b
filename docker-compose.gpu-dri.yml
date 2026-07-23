@@ -1,0 +1,21 @@
+# Override GPU Intel / AMD : passthrough via /dev/dri + encodage VA-API.
+# Usage :
+#   docker compose -f docker-compose.yml -f docker-compose.gpu-dri.yml up -d --build
+#
+# Prerequis hote : pilotes Mesa a jour. Ajustez DRINODE/DRI_NODE si votre carte
+# n'est pas sur renderD128 (verifiez avec `ls -l /dev/dri/by-path`).
+
+services:
+  dofus:
+    devices:
+      - /dev/dri:/dev/dri
+    # Le user "abc" du conteneur doit etre dans les groupes render/video de
+    # l'hote. Remplacez par les GID reels de votre hote si besoin
+    # (`getent group render video`).
+    group_add:
+      - "${RENDER_GID:-989}"
+      - "${VIDEO_GID:-44}"
+    environment:
+      # Noeud de rendu (GPU) et d'encodage VA-API.
+      - DRINODE=${DRINODE:-/dev/dri/renderD128}
+      - DRI_NODE=${DRI_NODE:-/dev/dri/renderD128}

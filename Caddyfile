@@ -1,0 +1,25 @@
+# Reverse proxy TLS devant le bureau web Dofus.
+# Caddy termine le HTTPS et relaie vers le NGINX interne du conteneur (port 3000).
+# L'upgrade WebSocket (flux video/audio pixelflux) est gere automatiquement.
+#
+# DOMAIN vient de .env :
+#   - domaine public (ex dofus.example.com) resolvant vers cet hote + ports 80/443
+#     ouverts => certificat Let's Encrypt automatique.
+#   - usage LAN/local => mettez un nom comme "dofus.local" et decommentez
+#     "tls internal" (certificat auto-signe, a accepter dans le navigateur).
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Auth : deleguee au NGINX/Selkies interne (CUSTOM_USER / PASSWORD).
+	reverse_proxy dofus:3000 {
+		# Connexions de streaming longues : pas de timeout de lecture agressif.
+		transport http {
+			read_timeout 0
+			write_timeout 0
+		}
+	}
+
+	# --- Acces LAN / sans domaine public : decommentez la ligne suivante ---
+	# tls internal
+}

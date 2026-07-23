@@ -1,0 +1,19 @@
+# Override GPU NVIDIA : passthrough via nvidia-container-toolkit + encodage NVENC.
+# Usage :
+#   docker compose -f docker-compose.yml -f docker-compose.gpu-nvidia.yml up -d --build
+#
+# Prerequis hote : pilote NVIDIA + nvidia-container-toolkit installes et
+# `nvidia-ctk runtime configure` execute (runtime "nvidia" disponible pour Docker).
+
+services:
+  dofus:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, compute, video, utility, graphics]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all

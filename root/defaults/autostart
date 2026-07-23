@@ -1,0 +1,27 @@
+#!/bin/bash
+# Lance au demarrage de la session Openbox (mecanisme baseimage-selkies).
+# Cette unique application occupe le "bureau" web : l'Ankama Launcher, d'ou
+# l'utilisateur se connecte, telecharge puis lance Dofus.
+
+set -euo pipefail
+
+# Emplacement persistant prioritaire : un AppImage depose par l'utilisateur dans
+# le volume /config a la main l'emporte sur celui embarque a la construction
+# (utile si l'URL de build a echoue ou pour epingler une version precise).
+LAUNCHER_PERSIST="/config/Ankama-Launcher.AppImage"
+LAUNCHER_BAKED="/opt/ankama/Ankama-Launcher.AppImage"
+
+if [[ -x "${LAUNCHER_PERSIST}" ]]; then
+    LAUNCHER="${LAUNCHER_PERSIST}"
+elif [[ -x "${LAUNCHER_BAKED}" ]]; then
+    LAUNCHER="${LAUNCHER_BAKED}"
+else
+    # Rien de disponible : on affiche un message clair dans la fenetre web
+    # plutot qu'un bureau vide.
+    exec xmessage -center \
+        "Ankama Launcher introuvable. Deposez l'AppImage dans /config/Ankama-Launcher.AppImage puis redemarrez le conteneur."
+fi
+
+# --appimage-extract-and-run : execute sans FUSE (pas de /dev/fuse ni privileges).
+# --no-sandbox : le bac a sable Chromium/Electron ne fonctionne pas en conteneur.
+exec "${LAUNCHER}" --appimage-extract-and-run --no-sandbox
