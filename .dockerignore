@@ -1,0 +1,4 @@
+# Liste blanche : le build n'utilise que root/ (COPY /root /). Evite d'envoyer
+# au demon .git, .env (secrets) ou un AppImage de plusieurs centaines de Mo.
+*
+!root/
