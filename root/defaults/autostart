@@ -43,16 +43,20 @@ extract_appimage() {
     touch "${_dest}/.extracted"
 }
 
-# Choix de l'AppDir a lancer. Un AppImage depose a la main dans /config l'emporte
-# (utile pour epingler une version) ; comme on ne peut pas l'executer directement,
-# on l'extrait (et on reutilise le cache tant qu'il est a jour).
-if [ -f "${PERSIST_APPIMAGE}" ]; then
+# Choix de l'AppDir a lancer. Un AppImage NON VIDE dans /config l'emporte : depose
+# a la main (pour epingler une version) ou ecrit par l'auto-update du launcher
+# (cf. plus bas). Comme on ne peut pas l'executer, on l'extrait (et on reutilise
+# le cache tant qu'il est a jour).
+if [ -s "${PERSIST_APPIMAGE}" ]; then
     if [ ! -f "${PERSIST_STAMP}" ] || [ "${PERSIST_APPIMAGE}" -nt "${PERSIST_STAMP}" ]; then
         extract_appimage "${PERSIST_APPIMAGE}" "${PERSIST_APPDIR}"
     fi
     APPDIR="${PERSIST_APPDIR}"
 elif [ -x "${BAKED_APPDIR}/AppRun" ]; then
     APPDIR="${BAKED_APPDIR}"
+    # Fichier vide = "pas d'override" pour ce script, mais cible valide pour
+    # l'auto-update (qui commence par supprimer le fichier $APPIMAGE existant).
+    [ -e "${PERSIST_APPIMAGE}" ] || : > "${PERSIST_APPIMAGE}"
 else
     # Rien de disponible : message clair dans la fenetre web plutot qu'un bureau vide.
     exec xmessage -center \
@@ -62,5 +66,13 @@ fi
 # On reproduit ce que fait le runtime AppImage : definir APPDIR/APPIMAGE puis
 # laisser AppRun preparer l'environnement (LD_LIBRARY_PATH, PATH, XDG_DATA_DIRS...)
 # et exec le binaire interne zaap.
+#
+# APPIMAGE pointe vers l'AppImage PERSISTANT (inscriptible), jamais vers AppRun :
+# l'auto-update du launcher (electron-updater, AppImageUpdater) supprime le
+# fichier $APPIMAGE puis y ecrit la nouvelle version. Vers /opt (root) il
+# echouerait ; vers le cache extrait il remplacerait AppRun par un AppImage
+# inexecutable. Ici, la nouvelle version est simplement extraite au lancement
+# suivant (fichier plus recent que le temoin d'extraction).
+#
 # --no-sandbox : le bac a sable Chromium/Electron ne fonctionne pas en conteneur.
-exec env APPDIR="${APPDIR}" APPIMAGE="${APPDIR}/AppRun" "${APPDIR}/AppRun" --no-sandbox
+exec env APPDIR="${APPDIR}" APPIMAGE="${PERSIST_APPIMAGE}" "${APPDIR}/AppRun" --no-sandbox

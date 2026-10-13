@@ -69,6 +69,10 @@ make down        # arrête
   l'AppImage dans le volume sous `/config/Ankama-Launcher.AppImage`.
 - Le cache Docker conserve le launcher du premier build : `make update-launcher`
   force son retéléchargement (seule cette couche est reconstruite).
+- Le launcher se met à jour tout seul : la nouvelle version est écrite dans
+  `/config/Ankama-Launcher.AppImage` (un fichier vide y est créé d'office) puis
+  extraite au lancement suivant. Pour revenir au launcher de l'image, supprimer
+  ce fichier.
 - Écran noir / lib manquante : `make logs`, puis compléter le `Dockerfile`
   (paquets ciblant Ubuntu 26.04 « Resolute »).
 - Le script de lancement (`autostart`) est géré par l'image : il est
