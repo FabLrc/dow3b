@@ -10,6 +10,9 @@
 # digest : un rebuild recupere les correctifs de la base.
 FROM ghcr.io/linuxserver/baseimage-selkies:ubunturesolute
 
+# pipefail : un echec en amont d'un pipe (ex. readelf | awk) fait echouer le RUN.
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Dependances du client natif Dofus 3 (Ankama Launcher = Electron/Chromium ;
