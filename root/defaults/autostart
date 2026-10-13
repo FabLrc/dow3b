@@ -30,37 +30,57 @@ PERSIST_STAMP="${PERSIST_APPDIR}/.extracted"
 # Extrait un AppImage type-2 SANS executer son runtime (cf. explication ci-dessus).
 # Le squashfs appended commence a la fin de la table des sections de l'ELF :
 # offset = e_shoff + e_shnum * e_shentsize (lus via readelf).
+# Extraction dans un dossier temporaire puis bascule : un echec laisse le cache
+# precedent intact. Retourne 1 en cas d'echec (errexit est inactif ici, l'appel
+# etant teste par l'appelant : chaque etape est donc verifiee explicitement).
 extract_appimage() {
     _img="$1"
     _dest="$2"
-    _off="$(readelf -h "${_img}" | awk '
+    _tmp="${_dest}.tmp"
+    _off="$(readelf -h "${_img}" 2>/dev/null | awk '
         /Start of section headers/  {a=$5}
         /Size of section headers/   {b=$5}
         /Number of section headers/ {c=$5}
         END { print a + b * c }')"
-    rm -rf "${_dest}"
-    unsquashfs -o "${_off}" -d "${_dest}" -f "${_img}" >/dev/null
-    touch "${_dest}/.extracted"
+    # readelf en echec (pas un ELF) => awk affiche 0.
+    [ "${_off:-0}" -gt 0 ] 2>/dev/null || return 1
+    rm -rf "${_tmp}"
+    if ! unsquashfs -o "${_off}" -d "${_tmp}" -f "${_img}" >/dev/null 2>&1 \
+        || [ ! -x "${_tmp}/AppRun" ]; then
+        rm -rf "${_tmp}"
+        return 1
+    fi
+    touch "${_tmp}/.extracted" && rm -rf "${_dest}" && mv "${_tmp}" "${_dest}"
 }
 
 # Choix de l'AppDir a lancer. Un AppImage NON VIDE dans /config l'emporte : depose
 # a la main (pour epingler une version) ou ecrit par l'auto-update du launcher
 # (cf. plus bas). Comme on ne peut pas l'executer, on l'extrait (et on reutilise
 # le cache tant qu'il est a jour).
+APPDIR=""
+EXTRACT_ERROR=""
 if [ -s "${PERSIST_APPIMAGE}" ]; then
     if [ ! -f "${PERSIST_STAMP}" ] || [ "${PERSIST_APPIMAGE}" -nt "${PERSIST_STAMP}" ]; then
-        extract_appimage "${PERSIST_APPIMAGE}" "${PERSIST_APPDIR}"
+        extract_appimage "${PERSIST_APPIMAGE}" "${PERSIST_APPDIR}" || \
+            EXTRACT_ERROR="Extraction de ${PERSIST_APPIMAGE} impossible (fichier corrompu ou incomplet ?). Supprimez-le puis redemarrez le conteneur."
     fi
-    APPDIR="${PERSIST_APPDIR}"
-elif [ -x "${BAKED_APPDIR}/AppRun" ]; then
+    [ -n "${EXTRACT_ERROR}" ] || APPDIR="${PERSIST_APPDIR}"
+fi
+if [ -z "${APPDIR}" ] && [ -x "${BAKED_APPDIR}/AppRun" ]; then
     APPDIR="${BAKED_APPDIR}"
     # Fichier vide = "pas d'override" pour ce script, mais cible valide pour
     # l'auto-update (qui commence par supprimer le fichier $APPIMAGE existant).
     [ -e "${PERSIST_APPIMAGE}" ] || : > "${PERSIST_APPIMAGE}"
-else
-    # Rien de disponible : message clair dans la fenetre web plutot qu'un bureau vide.
-    exec xmessage -center \
-        "Ankama Launcher introuvable. Deposez l'AppImage dans ${PERSIST_APPIMAGE} puis redemarrez le conteneur."
+fi
+if [ -z "${APPDIR}" ]; then
+    # Rien de lancable : message clair dans la fenetre web plutot qu'un bureau vide.
+    MSG="Ankama Launcher introuvable. Deposez l'AppImage dans ${PERSIST_APPIMAGE} puis redemarrez le conteneur."
+    [ -z "${EXTRACT_ERROR}" ] || MSG="${EXTRACT_ERROR}"
+    exec xmessage -center "${MSG}"
+fi
+if [ -n "${EXTRACT_ERROR}" ]; then
+    # Secours sur le launcher de l'image ; on signale le probleme sans bloquer.
+    xmessage -center "${EXTRACT_ERROR} Launcher de l'image utilise en attendant." &
 fi
 
 # On reproduit ce que fait le runtime AppImage : definir APPDIR/APPIMAGE puis
