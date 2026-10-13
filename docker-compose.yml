@@ -43,6 +43,7 @@ services:
       - SELKIES_COMMAND_ENABLED=false
       - SELKIES_UI_SIDEBAR_SHOW_FILES=false
       - SELKIES_UI_SIDEBAR_SHOW_APPS=false
+      - SELKIES_PRINTING_ENABLED=false
       # Decommenter pour FORCER le rendu logiciel (debug / hote sans GPU) :
       # - LIBGL_ALWAYS_SOFTWARE=1
     volumes:

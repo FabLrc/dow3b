@@ -5,8 +5,10 @@
 # NGINX + HTTP basic auth, PulseAudio, encodage video/audio, persistance /config.
 # On se contente d'ajouter les dependances du client natif Dofus 3 + le launcher.
 #
-# Tag de base epingle (voir README pour changer d'arch/distro).
-FROM ghcr.io/linuxserver/baseimage-selkies:ubuntunoble
+# Base Ubuntu 26.04 "Resolute". La branche ubuntunoble n'est plus construite par
+# LinuxServer (plus de mises a jour de securite). Tag mobile, non epingle par
+# digest : un rebuild recupere les correctifs de la base.
+FROM ghcr.io/linuxserver/baseimage-selkies:ubunturesolute
 
 # Point d'entree de telechargement du launcher Dofus (Linux x86_64). Cette URL
 # renvoie un 302 (+ cookie de session) vers l'AppImage courant, actuellement
@@ -18,7 +20,7 @@ ARG ANKAMA_APPIMAGE_URL="https://download.ankama.com/launcher-dofus/full/linux"
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Dependances du client natif Dofus 3 (Ankama Launcher = Electron/Chromium ;
-# le jeu = Unity/OpenGL/Vulkan). Noms cibles Ubuntu 24.04 "Noble" (transition
+# le jeu = Unity/OpenGL/Vulkan). Noms cibles Ubuntu 26.04 "Resolute" (suffixes
 # t64). On N'EXECUTE PAS l'AppImage : on extrait son squashfs au build (voir
 # plus bas) puis on lance directement le binaire interne. Cela evite FUSE ET
 # surtout le "exec format error" du runtime AppImage sous emulation Rosetta
@@ -39,7 +41,8 @@ RUN apt-get update && \
         libvulkan1 \
         vulkan-tools \
         # --- Encodage/decodage VA-API pour GPU Intel/AMD ---
-        mesa-va-drivers \
+        # (mesa-va-drivers n'existe plus : fusionne dans mesa-libgallium.)
+        mesa-libgallium \
         # --- Runtime Electron/Chromium du launcher ---
         libnss3 \
         libnspr4 \
@@ -92,7 +95,7 @@ RUN apt-get update && \
 #
 # On installe Google Chrome (.deb officiel, amd64 uniquement -> coherent avec
 # "platform: linux/amd64") : c'est le choix Chrome-family le plus fiable ici.
-# Sur Ubuntu 24.04 "Noble", apt "chromium"/"chromium-browser" ne sont que des
+# Sur Ubuntu 26.04 "Resolute", apt "chromium"/"chromium-browser" ne sont que des
 # stubs snap (exigent snapd, casses en conteneur), d'ou Chrome plutot que ceux-la.
 # La plupart de ses dependances runtime sont deja tirees par le launcher ci-dessus.
 #
@@ -100,8 +103,8 @@ RUN apt-get update && \
 # le bac a sable ne s'initialise pas et le process meurt aussitot (rien ne
 # s'ouvre). Or Chrome s'auto-enregistre comme handler par defaut de
 # x-scheme-handler/https ET pose un .desktop dont l'Exec est
-# "/usr/bin/google-chrome-stable %U" (SANS --no-sandbox). xdg-open (xdg-utils
-# 1.1.3 de Noble) resout un lien http(s) via ce handler MIME et lance donc Chrome
+# "/usr/bin/google-chrome-stable %U" (SANS --no-sandbox). xdg-open (xdg-utils)
+# resout un lien http(s) via ce handler MIME et lance donc Chrome
 # SANS --no-sandbox : $BROWSER et l'alternative x-www-browser sont ignores.
 # => On force le handler MIME (et les alternatives) vers un wrapper --no-sandbox.
 RUN curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \

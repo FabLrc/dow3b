@@ -66,7 +66,7 @@ make down        # arrête
   `docker compose build --build-arg ANKAMA_APPIMAGE_URL="<url>"`, ou déposer
   l'AppImage dans le volume sous `/config/Ankama-Launcher.AppImage`.
 - Écran noir / lib manquante : `make logs`, puis compléter le `Dockerfile`
-  (paquets ciblant Ubuntu 24.04 « Noble »).
+  (paquets ciblant Ubuntu 26.04 « Resolute »).
 - Le script de lancement (`autostart`) est géré par l'image : il est
   resynchronisé dans `/config` à chaque démarrage, toute modification manuelle
   y est écrasée.
