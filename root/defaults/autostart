@@ -22,6 +22,10 @@ set -eu
 BAKED_APPDIR="/opt/ankama/app"                        # AppImage extrait au build
 PERSIST_APPIMAGE="/config/Ankama-Launcher.AppImage"   # override utilisateur (AppImage brut)
 PERSIST_APPDIR="/config/.ankama-app"                  # cache d'extraction de l'override
+# Temoin d'extraction reussie. On ne compare PAS l'AppImage a AppRun : unsquashfs
+# restaure la date d'origine des fichiers, AppRun parait donc toujours plus
+# ancien que l'AppImage et le cache serait reextrait a chaque demarrage.
+PERSIST_STAMP="${PERSIST_APPDIR}/.extracted"
 
 # Extrait un AppImage type-2 SANS executer son runtime (cf. explication ci-dessus).
 # Le squashfs appended commence a la fin de la table des sections de l'ELF :
@@ -36,13 +40,14 @@ extract_appimage() {
         END { print a + b * c }')"
     rm -rf "${_dest}"
     unsquashfs -o "${_off}" -d "${_dest}" -f "${_img}" >/dev/null
+    touch "${_dest}/.extracted"
 }
 
 # Choix de l'AppDir a lancer. Un AppImage depose a la main dans /config l'emporte
 # (utile pour epingler une version) ; comme on ne peut pas l'executer directement,
 # on l'extrait (et on reutilise le cache tant qu'il est a jour).
 if [ -f "${PERSIST_APPIMAGE}" ]; then
-    if [ ! -x "${PERSIST_APPDIR}/AppRun" ] || [ "${PERSIST_APPIMAGE}" -nt "${PERSIST_APPDIR}/AppRun" ]; then
+    if [ ! -f "${PERSIST_STAMP}" ] || [ "${PERSIST_APPIMAGE}" -nt "${PERSIST_STAMP}" ]; then
         extract_appimage "${PERSIST_APPIMAGE}" "${PERSIST_APPDIR}"
     fi
     APPDIR="${PERSIST_APPDIR}"
