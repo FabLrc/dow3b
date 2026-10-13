@@ -53,6 +53,7 @@ make test        # tests statiques (sans build ni lancement)
 make up          # build + démarre (rendu logiciel)
 make up-dri      # + GPU Intel/AMD
 make up-nvidia   # + GPU NVIDIA
+make update-launcher  # rebuild en retéléchargeant le launcher Ankama
 make logs        # logs du conteneur
 make down        # arrête
 ```
@@ -62,9 +63,12 @@ make down        # arrête
 
 ## Notes
 
-- Si le build échoue au téléchargement du launcher (URL Ankama changée) :
-  `docker compose build --build-arg ANKAMA_APPIMAGE_URL="<url>"`, ou déposer
+- Le launcher est téléchargé au build ; un échec fait échouer le build. Si l'URL
+  Ankama a changé : `docker compose build --build-arg ANKAMA_APPIMAGE_URL="<url>"`.
+  Pour s'en passer : `--build-arg ANKAMA_APPIMAGE_URL=` (vide) puis déposer
   l'AppImage dans le volume sous `/config/Ankama-Launcher.AppImage`.
+- Le cache Docker conserve le launcher du premier build : `make update-launcher`
+  force son retéléchargement (seule cette couche est reconstruite).
 - Écran noir / lib manquante : `make logs`, puis compléter le `Dockerfile`
   (paquets ciblant Ubuntu 26.04 « Resolute »).
 - Le script de lancement (`autostart`) est géré par l'image : il est

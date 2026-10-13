@@ -1,4 +1,4 @@
-.PHONY: test build up up-dri up-nvidia down logs
+.PHONY: test build update-launcher up up-dri up-nvidia down logs
 
 # Tests statiques (aucun build ni lancement du conteneur).
 test:
@@ -7,6 +7,10 @@ test:
 # Build + demarrage (rendu logiciel, portable partout).
 build:
 	docker compose build
+
+# Rebuild en invalidant uniquement la couche du launcher (retelechargement).
+update-launcher:
+	docker compose build --build-arg LAUNCHER_REFRESH="$$(date +%s)"
 
 up:
 	docker compose up -d --build

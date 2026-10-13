@@ -10,21 +10,13 @@
 # digest : un rebuild recupere les correctifs de la base.
 FROM ghcr.io/linuxserver/baseimage-selkies:ubunturesolute
 
-# Point d'entree de telechargement du launcher Dofus (Linux x86_64). Cette URL
-# renvoie un 302 (+ cookie de session) vers l'AppImage courant, actuellement
-# "Dofus 3.0-Setup-x86_64.AppImage" ; le nom exact peut changer cote Ankama,
-# d'ou l'usage de la redirection plutot que d'un lien direct (qui renvoie 403).
-# Surchargez avec --build-arg ANKAMA_APPIMAGE_URL=... si besoin.
-ARG ANKAMA_APPIMAGE_URL="https://download.ankama.com/launcher-dofus/full/linux"
-
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Dependances du client natif Dofus 3 (Ankama Launcher = Electron/Chromium ;
 # le jeu = Unity/OpenGL/Vulkan). Noms cibles Ubuntu 26.04 "Resolute" (suffixes
-# t64). On N'EXECUTE PAS l'AppImage : on extrait son squashfs au build (voir
-# plus bas) puis on lance directement le binaire interne. Cela evite FUSE ET
-# surtout le "exec format error" du runtime AppImage sous emulation Rosetta
-# (Mac Apple Silicon), ou --appimage-extract-and-run echoue aussi.
+# t64). L'AppImage du launcher n'est jamais execute (cf. couche launcher en fin
+# de fichier) : binutils + squashfs-tools servent a l'extraire, au build ET au
+# runtime (AppImage depose dans /config, cf. autostart).
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -66,24 +58,6 @@ RUN apt-get update && \
         # --- Polices (evite le rendu casse du launcher) ---
         fonts-liberation \
         fonts-noto-core && \
-    # Telechargement + extraction du launcher (best-effort ; le script autostart
-    # prend aussi en charge un AppImage depose dans /config si celui-ci echoue).
-    mkdir -p /opt/ankama && \
-    # NB: le WAF Ankama exige un User-Agent "navigateur" contenant AppleWebKit,
-    # sinon il renvoie 403 (un simple "Mozilla/5.0 (X11; Linux x86_64)" ne suffit
-    # PAS ; "curl/x" non plus).
-    ( curl -fSL --retry 3 \
-        -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36" \
-        -b /tmp/ankama-ck -c /tmp/ankama-ck \
-        "${ANKAMA_APPIMAGE_URL}" -o /tmp/Ankama-Launcher.AppImage && \
-      # Extraction du squashfs SANS executer le runtime AppImage. Un AppImage
-      # type-2 = [runtime ELF][squashfs appended] ; le squashfs commence a la fin
-      # de la table des sections de l'ELF (e_shoff + e_shnum*e_shentsize). On lit
-      # ces champs avec readelf, puis on decompresse avec unsquashfs.
-      off="$(readelf -h /tmp/Ankama-Launcher.AppImage | awk '/Start of section headers/{a=$5}/Size of section headers/{b=$5}/Number of section headers/{c=$5}END{print a+b*c}')" && \
-      unsquashfs -o "$off" -d /opt/ankama/app -f /tmp/Ankama-Launcher.AppImage && \
-      rm -f /tmp/Ankama-Launcher.AppImage ) || \
-      echo "AVERTISSEMENT: telechargement/extraction de l'AppImage echoue au build ; deposez-le dans /config/Ankama-Launcher.AppImage" && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -150,6 +124,46 @@ RUN curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
 # xdg-open et Electron (shell.openExternal) : $BROWSER en dernier recours ; le
 # handler MIME ci-dessus reste la voie principale de resolution.
 ENV BROWSER=/usr/local/bin/dofus-browser
+
+# --- Ankama Launcher --------------------------------------------------------
+# Couche separee et placee apres les paquets : c'est la seule qu'on rafraichit,
+# sans reinstaller tout le reste.
+#
+# Point d'entree de telechargement du launcher Dofus (Linux x86_64). Cette URL
+# renvoie un 302 (+ cookie de session) vers l'AppImage courant, actuellement
+# "Dofus 3.0-Setup-x86_64.AppImage" ; le nom exact peut changer cote Ankama,
+# d'ou l'usage de la redirection plutot que d'un lien direct (qui renvoie 403).
+# Surchargez avec --build-arg ANKAMA_APPIMAGE_URL=... si besoin. Une valeur VIDE
+# desactive volontairement le telechargement (launcher a deposer dans
+# /config/Ankama-Launcher.AppImage) ; sinon tout echec FAIT ECHOUER le build.
+ARG ANKAMA_APPIMAGE_URL="https://download.ankama.com/launcher-dofus/full/linux"
+# Le cache Docker figerait le launcher du premier build. Changer cette valeur
+# invalide cette couche et force le retelechargement (`make update-launcher`).
+ARG LAUNCHER_REFRESH=""
+# On N'EXECUTE PAS l'AppImage : on extrait son squashfs puis l'autostart lance
+# directement le binaire interne. Cela evite FUSE ET surtout le "exec format
+# error" du runtime AppImage sous emulation Rosetta (Mac Apple Silicon), ou
+# --appimage-extract-and-run echoue aussi.
+RUN if [ -z "${ANKAMA_APPIMAGE_URL}" ]; then \
+        echo "ANKAMA_APPIMAGE_URL vide : launcher non embarque (deposez-le dans /config/Ankama-Launcher.AppImage)"; \
+        exit 0; \
+    fi && \
+    echo "Telechargement du launcher (LAUNCHER_REFRESH=${LAUNCHER_REFRESH:-non defini})" && \
+    tmp="$(mktemp -d)" && \
+    trap 'rm -rf "$tmp"' EXIT && \
+    # NB: le WAF Ankama exige un User-Agent "navigateur" contenant AppleWebKit,
+    # sinon il renvoie 403 (un simple "Mozilla/5.0 (X11; Linux x86_64)" ne suffit
+    # PAS ; "curl/x" non plus).
+    curl -fSL --retry 3 \
+        -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36" \
+        -b "$tmp/ck" -c "$tmp/ck" \
+        "${ANKAMA_APPIMAGE_URL}" -o "$tmp/launcher.AppImage" && \
+    # Un AppImage type-2 = [runtime ELF][squashfs appended] ; le squashfs commence
+    # a la fin de la table des sections de l'ELF (e_shoff + e_shnum*e_shentsize).
+    off="$(readelf -h "$tmp/launcher.AppImage" | awk '/Start of section headers/{a=$5}/Size of section headers/{b=$5}/Number of section headers/{c=$5}END{print a+b*c}')" && \
+    mkdir -p /opt/ankama && \
+    unsquashfs -o "$off" -d /opt/ankama/app -f "$tmp/launcher.AppImage" && \
+    test -x /opt/ankama/app/AppRun
 
 # Scripts et defaults (autostart) injectes par la couche s6 de la base.
 COPY /root /
