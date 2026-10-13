@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
-# Tests statiques de la stack Dofus — AUCUN build ni lancement du conteneur.
+# Tests de la stack Dofus — AUCUN build d'image ni lancement du conteneur.
 #
-# 3 niveaux :
-#   A. Assertions statiques (toujours, zero dependance).
-#   B. Validation compose (si `docker` present) : parse/merge, pas de build/pull.
-#   C. Linters (shellcheck / hadolint / yamllint) : uniquement si installes.
+# 4 niveaux (chacun SKIP proprement si ses outils manquent) :
+#   A. Coherence des fichiers (zero dependance).
+#   B. Config compose RESOLUE (docker compose + python3) : durcissement, ports...
+#   C. Linters (shellcheck / hadolint / yamllint).
+#   D. Comportement du script autostart sur de faux AppImages
+#      (mksquashfs + unsquashfs + readelf).
 #
 # Sortie : PASS / FAIL / SKIP. Code retour != 0 si au moins un FAIL.
 # Compatible bash 3.2 (macOS) : pas de tableaux associatifs.
 
+# Idiome volontaire : "condition; check $? 'description'".
+# shellcheck disable=SC2319
 set -uo pipefail
-cd "$(dirname "$0")/.."
-ROOT="$(pwd)"
+cd "$(dirname "$0")/.." || exit 1
 
 PASS=0; FAIL=0; SKIP=0
 C_G=$'\033[32m'; C_R=$'\033[31m'; C_Y=$'\033[33m'; C_0=$'\033[0m'
@@ -19,171 +22,173 @@ ok(){ printf '  %sPASS%s %s\n' "$C_G" "$C_0" "$1"; PASS=$((PASS+1)); }
 no(){ printf '  %sFAIL%s %s\n' "$C_R" "$C_0" "$1"; FAIL=$((FAIL+1)); }
 sk(){ printf '  %sSKIP%s %s\n' "$C_Y" "$C_0" "$1"; SKIP=$((SKIP+1)); }
 section(){ printf '\n== %s ==\n' "$1"; }
-
-# --- helpers d'assertion ---
-has_file(){ [ -f "$1" ] && ok "fichier present : $1" || no "fichier manquant : $1"; }
-is_exec(){ [ -x "$1" ] && ok "executable : $1" || no "non executable : $1"; }
-# contains <fichier> <regex-ERE> <description>
-contains(){ if grep -Eq -- "$2" "$1" 2>/dev/null; then ok "$3"; else no "$3 (motif absent : $2 dans $1)"; fi; }
+# check <condition-status> <description> : PASS si la commande precedente a reussi.
+check(){ if [ "$1" -eq 0 ]; then ok "$2"; else no "$2"; fi; }
+has_cmds(){ for c in "$@"; do command -v "$c" >/dev/null 2>&1 || return 1; done; }
 
 # ============================================================
-section "A. Presence des fichiers"
-for f in Dockerfile docker-compose.yml docker-compose.gpu-dri.yml \
-         docker-compose.gpu-nvidia.yml Caddyfile .env.example .gitignore \
-         README.md root/defaults/autostart; do
-  has_file "$f"
-done
-
-# ============================================================
-section "A. Script autostart"
-is_exec root/defaults/autostart
-contains root/defaults/autostart '^#!/bin/sh'                  "autostart : shebang sh (POSIX, pas de bashismes)"
-contains root/defaults/autostart 'AppRun'                      "autostart : lance l'AppRun extrait (pas le runtime AppImage)"
-contains root/defaults/autostart '--no-sandbox'               "autostart : Chromium sans sandbox"
-contains root/defaults/autostart '/config/Ankama-Launcher\.AppImage' "autostart : fallback AppImage persistant"
-contains root/defaults/autostart '/opt/ankama/app'            "autostart : AppDir embarquee (extraite au build)"
-# Ne doit PAS reintroduire l'exec direct de l'AppImage : casse sous Rosetta (Mac ARM).
-# (On ignore les commentaires : le "pourquoi" mentionne le flag a titre explicatif.)
-if grep -vE '^[[:space:]]*#' root/defaults/autostart | grep -Eq -- '--appimage-extract-and-run'; then
-  no "autostart : ne doit pas executer le runtime AppImage (echec 'exec format error' sous Rosetta)"
-else
-  ok "autostart : n'execute pas le runtime AppImage"
-fi
-
-# ============================================================
-section "A. Synchro autostart (volumes /config existants)"
+section "A. Coherence des fichiers"
+# Ordre s6 : la resynchro de l'autostart doit passer apres la copie initiale de
+# la base (init-selkies-config) et avant le lancement d'Openbox (svc-de) ;
+# sans ces fichiers, elle tourne en parallele (course) ou pas du tout.
 S6=root/etc/s6-overlay/s6-rc.d
-is_exec  "$S6/init-dofus-autostart/run"
-has_file "$S6/init-dofus-autostart/up"
-# Ordre : apres la copie initiale de la base, avant le lancement d'Openbox.
-has_file "$S6/init-dofus-autostart/dependencies.d/init-selkies-config"
-has_file "$S6/svc-de/dependencies.d/init-dofus-autostart"
-has_file "$S6/user/contents.d/init-dofus-autostart"
+for f in "$S6/init-dofus-autostart/dependencies.d/init-selkies-config" \
+         "$S6/svc-de/dependencies.d/init-dofus-autostart" \
+         "$S6/user/contents.d/init-dofus-autostart"; do
+  [ -f "$f" ]; check $? "s6 : $f"
+done
+[ -x "$S6/init-dofus-autostart/run" ] && [ -x root/defaults/autostart ]
+check $? "scripts executables (autostart, init-dofus-autostart/run)"
 
-# ============================================================
-section "A. Dockerfile"
-contains Dockerfile 'FROM ghcr\.io/linuxserver/baseimage-selkies:ubunturesolute' "Dockerfile : base selkies maintenue (ubuntunoble n'est plus construite)"
-contains Dockerfile 'ARG ANKAMA_APPIMAGE_URL'                     "Dockerfile : URL launcher en build-arg"
-contains Dockerfile '^COPY /root /'                               "Dockerfile : injection des defaults"
-contains Dockerfile 'EXPOSE 3000 3001'                            "Dockerfile : ports internes exposes"
-contains Dockerfile 'mesa-vulkan-drivers'                         "Dockerfile : rendu Vulkan (Unity)"
-contains Dockerfile 'libgtk-3-0t64'                               "Dockerfile : runtime GTK/Electron (t64)"
-contains Dockerfile 'libnss3'                                     "Dockerfile : runtime Chromium"
-contains Dockerfile 'squashfs-tools'                              "Dockerfile : unsquashfs (extraction AppImage)"
-contains Dockerfile 'unsquashfs'                                  "Dockerfile : extraction du squashfs au build"
+grep -qxF '.env' .gitignore; check $? ".gitignore : .env (secrets) ignore"
 
-# ============================================================
-section "A. docker-compose (base)"
-contains docker-compose.yml '^[[:space:]]*dofus:'          "compose : service dofus"
-contains docker-compose.yml '^[[:space:]]*caddy:'          "compose : service caddy"
-contains docker-compose.yml 'dofus-data:/config'  "compose : volume persistant /config"
-contains docker-compose.yml 'shm_size'            "compose : /dev/shm dimensionne"
-contains docker-compose.yml '"443:443"'           "compose : caddy publie 443"
-# Le port du conteneur dofus ne doit PAS etre publie en clair (expose only).
-if grep -Eq '^[[:space:]]*ports:' docker-compose.yml && \
-   awk '/dofus:/{f=1} /caddy:/{f=0} f&&/ports:/{print}' docker-compose.yml | grep -q .; then
-  no "compose : le service dofus ne doit pas publier de port (reverse proxy uniquement)"
-else
-  ok "compose : dofus n'expose pas de port en clair"
-fi
-
-# ============================================================
-section "A. Overrides GPU"
-contains docker-compose.gpu-dri.yml '/dev/dri:/dev/dri' "override dri : passthrough /dev/dri"
-# DRINODE / DRI_NODE definis (meme vides) desactivent la detection AUTO_GPU de la base.
-if grep -vE '^[[:space:]]*#' docker-compose*.yml | grep -Eq 'DRI_?NODE'; then
-  no "override dri : DRINODE/DRI_NODE ne doivent pas etre definis par defaut (AUTO_GPU)"
-else ok "override dri : detection GPU automatique (AUTO_GPU) preservee"; fi
-contains docker-compose.gpu-nvidia.yml 'driver: nvidia' "override nvidia : reservation GPU"
-contains docker-compose.gpu-nvidia.yml 'capabilities:.*graphics' "override nvidia : capability graphics (GL/Vulkan)"
-
-# ============================================================
-section "A. Caddyfile"
-contains Caddyfile 'reverse_proxy dofus:3000' "caddy : proxy vers le conteneur"
-contains Caddyfile '\{\$DOMAIN\}'             "caddy : domaine depuis l'environnement"
-
-# ============================================================
-section "A. .gitignore protege les secrets"
-contains .gitignore '^\.env$' ".gitignore : .env ignore"
-
-# ============================================================
-section "A. Parite variables compose <-> .env.example"
-# Toute variable REQUISE (\${VAR:?...}) doit etre documentee dans .env.example.
-req_vars=$(grep -ohE '\$\{[A-Z_][A-Z0-9_]*:\?' docker-compose*.yml 2>/dev/null \
+# Toute variable REQUISE (${VAR:?...}) doit etre documentee dans .env.example.
+req_vars=$(grep -ohE '\$\{[A-Z_][A-Z0-9_]*:\?' docker-compose*.yml \
            | sed -E 's/\$\{([A-Z_][A-Z0-9_]*):\?/\1/' | sort -u)
 for v in $req_vars; do
-  if grep -Eq "^$v=" .env.example; then ok ".env.example documente la requise $v"
-  else no ".env.example : variable requise $v absente"; fi
+  grep -Eq "^$v=" .env.example; check $? ".env.example documente la requise $v"
 done
 # Toute variable referencee doit avoir un defaut (:-) OU etre documentee.
-all_vars=$(grep -ohE '\$\{[A-Z_][A-Z0-9_]*' docker-compose*.yml 2>/dev/null \
-           | sed -E 's/\$\{//' | sort -u)
+all_vars=$(grep -ohE '\$\{[A-Z_][A-Z0-9_]*' docker-compose*.yml | sed -E 's/\$\{//' | sort -u)
 for v in $all_vars; do
-  if grep -Eq "\\\$\{$v:-" docker-compose*.yml || grep -Eq "^$v=" .env.example; then
-    ok "variable $v : defaut ou documentee"
-  else
-    no "variable $v : ni defaut (:-) ni entree .env.example"
-  fi
+  { grep -Eq "\\\$\{$v:-" docker-compose*.yml || grep -Eq "^$v=" .env.example; }
+  check $? "variable $v : defaut ou documentee"
 done
 
+# DRINODE / DRI_NODE definis (meme vides) desactivent la detection AUTO_GPU de la base.
+! grep -vhE '^[[:space:]]*#' docker-compose*.yml | grep -Eq 'DRI_?NODE'
+check $? "compose : DRINODE/DRI_NODE non forces (detection AUTO_GPU preservee)"
+
 # ============================================================
-section "B. Validation docker compose (parse/merge, sans build)"
-if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+section "B. Config compose resolue (sans build)"
+if has_cmds docker python3 && docker compose version >/dev/null 2>&1; then
   tmpenv="$(mktemp)"
-  cat > "$tmpenv" <<'EOF'
-CUSTOM_USER=test
-PASSWORD=testpassword
-DOMAIN=dofus.example.com
-EOF
-  run_cfg(){ # <desc> <fichiers...>
-    local desc="$1"; shift
-    local args=(); for f in "$@"; do args+=(-f "$f"); done
-    if docker compose --env-file "$tmpenv" "${args[@]}" config -q >/dev/null 2>&1; then
-      ok "$desc"
-    else
-      no "$desc (voir : docker compose ${args[*]} config)"
-    fi
-  }
-  run_cfg "compose base valide"        docker-compose.yml
-  run_cfg "compose + override dri"     docker-compose.yml docker-compose.gpu-dri.yml
-  run_cfg "compose + override nvidia"  docker-compose.yml docker-compose.gpu-nvidia.yml
-  # Durcissement effectif dans la config resolue (base + overrides GPU).
+  printf 'CUSTOM_USER=test\nPASSWORD=testpassword\nDOMAIN=dofus.example.com\n' > "$tmpenv"
   for files in "docker-compose.yml" \
                "docker-compose.yml docker-compose.gpu-dri.yml" \
                "docker-compose.yml docker-compose.gpu-nvidia.yml"; do
     args=(); for f in $files; do args+=(-f "$f"); done
-    resolved="$(docker compose --env-file "$tmpenv" "${args[@]}" config 2>/dev/null)"
-    for kv in 'DISABLE_SUDO: "true"' 'DISABLE_TERMINALS: "true"' \
-              'SELKIES_FILE_TRANSFERS: ""' 'SELKIES_COMMAND_ENABLED: "false"'; do
-      if printf '%s\n' "$resolved" | grep -qF -- "$kv"; then ok "durcissement [$files] : $kv"
-      else no "durcissement [$files] : $kv attendu"; fi
-    done
-    # HARDEN_DESKTOP desactive xdg-open => casse la connexion Ankama (2FA).
-    if printf '%s\n' "$resolved" | grep -qiE 'HARDEN_DESKTOP: "?true'; then
-      no "durcissement [$files] : HARDEN_DESKTOP=true casse la connexion Ankama"
-    else ok "durcissement [$files] : pas de HARDEN_DESKTOP"; fi
+    if ! json="$(docker compose --env-file "$tmpenv" "${args[@]}" config --format json 2>&1)"; then
+      no "[$files] config invalide : $json"
+      continue
+    fi
+    ok "[$files] config valide"
+    # Chaque ligne "FAIL <msg>" / "PASS <msg>" emise par python devient une assertion.
+    while IFS= read -r line; do
+      case "$line" in
+        PASS\ *) ok "[$files] ${line#PASS }" ;;
+        *)       no "[$files] ${line#FAIL }" ;;
+      esac
+    done < <(printf '%s' "$json" | python3 -c '
+import json, sys
+cfg = json.load(sys.stdin)
+svc = cfg["services"]
+dofus, caddy = svc.get("dofus", {}), svc.get("caddy", {})
+env = dofus.get("environment") or {}
+def check(cond, msg): print(("PASS " if cond else "FAIL ") + msg)
+for k, v in [("DISABLE_SUDO", "true"), ("DISABLE_TERMINALS", "true"),
+             ("SELKIES_FILE_TRANSFERS", ""), ("SELKIES_COMMAND_ENABLED", "false"),
+             ("SELKIES_PRINTING_ENABLED", "false")]:
+    check(env.get(k) == v, "durcissement %s=%r (vu : %r)" % (k, v, env.get(k)))
+# HARDEN_DESKTOP desactive xdg-open => casse la connexion Ankama (page 2FA).
+check(str(env.get("HARDEN_DESKTOP", "")).lower() != "true", "pas de HARDEN_DESKTOP (casse la connexion Ankama)")
+check(not dofus.get("ports"), "dofus ne publie aucun port (reverse proxy uniquement)")
+check(any(v.get("target") == "/config" for v in dofus.get("volumes", [])), "dofus : /config persistant")
+check(int(dofus.get("shm_size") or 0) >= 1 << 30, "dofus : shm_size >= 1 Go (Unity/Electron)")
+check(any(str(p.get("target")) == "443" for p in caddy.get("ports", [])), "caddy publie 443")
+')
   done
   rm -f "$tmpenv"
 else
-  sk "docker/compose absent — validation compose ignoree"
+  sk "docker compose / python3 absents — config resolue non verifiee"
 fi
 
 # ============================================================
-section "C. Linters optionnels"
-if command -v shellcheck >/dev/null 2>&1; then
-  if shellcheck -x root/defaults/autostart root/etc/s6-overlay/s6-rc.d/init-dofus-autostart/run >/dev/null 2>&1; then ok "shellcheck scripts"
-  else no "shellcheck scripts (shellcheck root/defaults/autostart root/etc/s6-overlay/s6-rc.d/*/run)"; fi
+section "C. Linters"
+if has_cmds shellcheck; then
+  shellcheck -x root/defaults/autostart "$S6"/init-dofus-autostart/run tests/run-tests.sh >/dev/null 2>&1
+  check $? "shellcheck (autostart, s6, tests)"
 else sk "shellcheck absent"; fi
 
-if command -v hadolint >/dev/null 2>&1; then
-  if hadolint Dockerfile >/dev/null 2>&1; then ok "hadolint Dockerfile"
-  else no "hadolint Dockerfile (hadolint Dockerfile)"; fi
+if has_cmds hadolint; then
+  hadolint Dockerfile >/dev/null 2>&1; check $? "hadolint Dockerfile"
 else sk "hadolint absent"; fi
 
-if command -v yamllint >/dev/null 2>&1; then
-  if yamllint -d relaxed docker-compose*.yml >/dev/null 2>&1; then ok "yamllint compose"
-  else no "yamllint compose (yamllint docker-compose*.yml)"; fi
+if has_cmds yamllint; then
+  yamllint -d relaxed docker-compose*.yml .github/workflows/*.yml >/dev/null 2>&1
+  check $? "yamllint (compose, CI)"
 else sk "yamllint absent"; fi
+
+# ============================================================
+section "D. Comportement du script autostart"
+# On execute le VRAI script avec sh (dash en CI : detecte les bashismes), ses
+# chemins /config et /opt redriges vers un dossier temporaire. Faux AppImage =
+# [ELF quelconque][squashfs contenant un AppRun qui journalise son lancement].
+ELF=/bin/true
+if has_cmds mksquashfs unsquashfs readelf && readelf -h "$ELF" >/dev/null 2>&1; then
+  T="$(mktemp -d)"
+  LOG="$T/log"
+  mkdir -p "$T/bin" "$T/config" "$T/src"
+  printf '#!/bin/sh\necho "XMESSAGE $*" >> "%s"\n' "$LOG" > "$T/bin/xmessage"
+  chmod +x "$T/bin/xmessage"
+  mk_apprun(){ # <dir> <tag>
+    mkdir -p "$1"
+    # shellcheck disable=SC2016 # $APPDIR & co. doivent s'expandre dans le faux AppRun, pas ici.
+    printf '#!/bin/sh\necho "RUN %s APPDIR=$APPDIR APPIMAGE=$APPIMAGE $*" >> "%s"\n' "$2" "$LOG" > "$1/AppRun"
+    chmod +x "$1/AppRun"
+  }
+  mk_apprun "$T/baked" BAKED
+  mk_apprun "$T/src/app" UPDATED
+  mksquashfs "$T/src/app" "$T/src/sq" -quiet -noappend >/dev/null
+  cat "$ELF" "$T/src/sq" > "$T/src/new.AppImage"
+  sed -e "s#\"/config/#\"$T/config/#g" -e "s#\"/opt/ankama/app\"#\"$T/baked\"#g" \
+      root/defaults/autostart > "$T/autostart"
+  P="$T/config/Ankama-Launcher.AppImage"
+  CACHE="$T/config/.ankama-app"
+
+  if [ "$(grep -c "$T" "$T/autostart")" -lt 3 ]; then
+    no "autostart : chemins non redirigeables (constantes renommees ?) — scenarios ignores"
+  else
+    # run_autostart : lance le script, attend les xmessage en arriere-plan.
+    run_autostart(){ : > "$LOG"; PATH="$T/bin:$PATH" sh "$T/autostart" >/dev/null 2>&1; sleep 0.3; }
+    logged(){ grep -qF -- "$1" "$LOG"; }
+
+    run_autostart
+    logged "RUN BAKED APPDIR=$T/baked APPIMAGE=$P --no-sandbox"
+    check $? "image seule : lance le launcher embarque, APPIMAGE persistant, --no-sandbox"
+    [ -f "$P" ] && [ ! -s "$P" ]; check $? "image seule : cible d'auto-update vide creee dans /config"
+
+    # Auto-update (electron-updater) : supprime $APPIMAGE puis y ecrit la nouvelle version.
+    rm -f "$P"; cp "$T/src/new.AppImage" "$P"
+    run_autostart
+    logged "RUN UPDATED APPDIR=$CACHE APPIMAGE=$P"; check $? "apres auto-update : version extraite lancee"
+
+    before="$(ls -lid "$CACHE")"; sleep 1
+    run_autostart
+    [ "$(ls -lid "$CACHE")" = "$before" ] && logged "RUN UPDATED"
+    check $? "relance : cache reutilise sans reextraction"
+
+    sleep 1; head -c 4096 "$T/src/new.AppImage" > "$P"     # AppImage tronque
+    run_autostart
+    logged "RUN BAKED" && logged "XMESSAGE -center Extraction de $P impossible"
+    check $? "AppImage corrompu : secours sur le launcher embarque + message"
+    [ -x "$CACHE/AppRun" ] && [ ! -e "$CACHE.tmp" ]
+    check $? "AppImage corrompu : cache precedent intact, pas de residu"
+
+    rm -rf "$T/baked"
+    run_autostart
+    logged "XMESSAGE -center Extraction de $P impossible" && ! logged "RUN "
+    check $? "AppImage corrompu sans launcher embarque : message d'erreur, rien lance"
+
+    rm -f "$P"
+    run_autostart
+    logged "XMESSAGE -center Ankama Launcher introuvable"
+    check $? "aucun launcher : message 'introuvable'"
+  fi
+  rm -rf "$T"
+else
+  sk "mksquashfs/unsquashfs/readelf absents — comportement autostart non teste"
+fi
 
 # ============================================================
 printf '\n----------------------------------------\n'

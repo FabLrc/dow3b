@@ -60,6 +60,8 @@ extract_appimage() {
 APPDIR=""
 EXTRACT_ERROR=""
 if [ -s "${PERSIST_APPIMAGE}" ]; then
+    # -nt : hors POSIX strict mais supporte par dash (le /bin/sh d'Ubuntu).
+    # shellcheck disable=SC3013
     if [ ! -f "${PERSIST_STAMP}" ] || [ "${PERSIST_APPIMAGE}" -nt "${PERSIST_STAMP}" ]; then
         extract_appimage "${PERSIST_APPIMAGE}" "${PERSIST_APPDIR}" || \
             EXTRACT_ERROR="Extraction de ${PERSIST_APPIMAGE} impossible (fichier corrompu ou incomplet ?). Supprimez-le puis redemarrez le conteneur."

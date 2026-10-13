@@ -12,13 +12,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Active le niveau C des tests. shellcheck et docker compose v2 sont deja
-      # presents sur les runners ubuntu-latest ; on ajoute yamllint et hadolint.
-      - name: Installer les linters (yamllint, hadolint)
+      # Active les niveaux C et D des tests. shellcheck, python3, binutils et
+      # docker compose v2 sont deja presents sur les runners ubuntu-latest ; on
+      # ajoute yamllint, squashfs-tools (faux AppImages du niveau D) et hadolint.
+      - name: Installer les outils de test (yamllint, squashfs-tools, hadolint)
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends yamllint
+          sudo apt-get install -y --no-install-recommends yamllint squashfs-tools
           HADOLINT_VERSION="v2.12.0"
           sudo curl -fsSL -o /usr/local/bin/hadolint \
             "https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}/hadolint-Linux-x86_64"
@@ -29,5 +30,5 @@ jobs:
           hadolint --version
           docker compose version
 
-      - name: Lancer la suite de tests (niveaux A + B + C)
+      - name: Lancer la suite de tests (niveaux A a D)
         run: ./tests/run-tests.sh
