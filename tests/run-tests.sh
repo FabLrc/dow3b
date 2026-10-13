@@ -92,6 +92,8 @@ for k, v in [("DISABLE_SUDO", "true"), ("DISABLE_TERMINALS", "true"),
     check(env.get(k) == v, "durcissement %s=%r (vu : %r)" % (k, v, env.get(k)))
 # HARDEN_DESKTOP desactive xdg-open => casse la connexion Ankama (page 2FA).
 check(str(env.get("HARDEN_DESKTOP", "")).lower() != "true", "pas de HARDEN_DESKTOP (casse la connexion Ankama)")
+# Le watchdog RESTART_APP relance le launcher quand il se ferme (crash, auto-update).
+check(env.get("RESTART_APP") == "true", "RESTART_APP=true (relance du launcher)")
 check(not dofus.get("ports"), "dofus ne publie aucun port (reverse proxy uniquement)")
 check(any(v.get("target") == "/config" for v in dofus.get("volumes", [])), "dofus : /config persistant")
 check(int(dofus.get("shm_size") or 0) >= 1 << 30, "dofus : shm_size >= 1 Go (Unity/Electron)")
@@ -135,6 +137,9 @@ if has_cmds mksquashfs unsquashfs readelf && readelf -h "$ELF" >/dev/null 2>&1; 
     mkdir -p "$1"
     # shellcheck disable=SC2016 # $APPDIR & co. doivent s'expandre dans le faux AppRun, pas ici.
     printf '#!/bin/sh\necho "RUN %s APPDIR=$APPDIR APPIMAGE=$APPIMAGE $*" >> "%s"\n' "$2" "$LOG" > "$1/AppRun"
+    # Parent du launcher : doit rester le script autostart (watchdog RESTART_APP).
+    # shellcheck disable=SC2016
+    printf '[ -r /proc/$PPID/cmdline ] && echo "PARENT $(tr "\\0" " " < /proc/$PPID/cmdline)" >> "%s"\n' "$LOG" >> "$1/AppRun"
     chmod +x "$1/AppRun"
   }
   mk_apprun "$T/baked" BAKED
@@ -156,6 +161,10 @@ if has_cmds mksquashfs unsquashfs readelf && readelf -h "$ELF" >/dev/null 2>&1; 
     run_autostart
     logged "RUN BAKED APPDIR=$T/baked APPIMAGE=$P --no-sandbox"
     check $? "image seule : lance le launcher embarque, APPIMAGE persistant, --no-sandbox"
+    if [ -d /proc/self ]; then
+      logged "PARENT sh $T/autostart"
+      check $? "le launcher reste enfant du script autostart (pas d'exec : watchdog RESTART_APP)"
+    else sk "/proc absent — parente du launcher non verifiee"; fi
     [ -f "$P" ] && [ ! -s "$P" ]; check $? "image seule : cible d'auto-update vide creee dans /config"
 
     # Auto-update (electron-updater) : supprime $APPIMAGE puis y ecrit la nouvelle version.

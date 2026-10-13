@@ -16,6 +16,12 @@
 # soit interprete. On extrait donc le squashfs (au build, cf. Dockerfile) et on
 # lance le binaire Electron interne (zaap, un ELF ET_DYN classique) via AppRun :
 # celui-la, Rosetta sait l'emuler (comme openbox, Xvfb...).
+#
+# PAS D'EXEC : ce shell doit rester vivant tant que le launcher tourne. Le
+# watchdog RESTART_APP de la base surveille le processus
+# "sh $HOME/.config/openbox/autostart" ; s'il est remplace par exec, le watchdog
+# le croit mort et relance un launcher par seconde. Quand le launcher se ferme
+# (fermeture, crash, auto-update), ce script se termine et le watchdog le relance.
 
 set -eu
 
@@ -78,7 +84,8 @@ if [ -z "${APPDIR}" ]; then
     # Rien de lancable : message clair dans la fenetre web plutot qu'un bureau vide.
     MSG="Ankama Launcher introuvable. Deposez l'AppImage dans ${PERSIST_APPIMAGE} puis redemarrez le conteneur."
     [ -z "${EXTRACT_ERROR}" ] || MSG="${EXTRACT_ERROR}"
-    exec xmessage -center "${MSG}"
+    xmessage -center "${MSG}"
+    exit 0
 fi
 if [ -n "${EXTRACT_ERROR}" ]; then
     # Secours sur le launcher de l'image ; on signale le probleme sans bloquer.
@@ -87,14 +94,15 @@ fi
 
 # On reproduit ce que fait le runtime AppImage : definir APPDIR/APPIMAGE puis
 # laisser AppRun preparer l'environnement (LD_LIBRARY_PATH, PATH, XDG_DATA_DIRS...)
-# et exec le binaire interne zaap.
+# et lancer le binaire interne zaap (sans exec, cf. en-tete).
 #
 # APPIMAGE pointe vers l'AppImage PERSISTANT (inscriptible), jamais vers AppRun :
 # l'auto-update du launcher (electron-updater, AppImageUpdater) supprime le
 # fichier $APPIMAGE puis y ecrit la nouvelle version. Vers /opt (root) il
 # echouerait ; vers le cache extrait il remplacerait AppRun par un AppImage
-# inexecutable. Ici, la nouvelle version est simplement extraite au lancement
-# suivant (fichier plus recent que le temoin d'extraction).
+# inexecutable. Ici, quand le launcher quitte pour s'installer, le watchdog
+# relance ce script qui extrait la nouvelle version (fichier plus recent que le
+# temoin d'extraction).
 #
 # --no-sandbox : le bac a sable Chromium/Electron ne fonctionne pas en conteneur.
-exec env APPDIR="${APPDIR}" APPIMAGE="${PERSIST_APPIMAGE}" "${APPDIR}/AppRun" --no-sandbox
+env APPDIR="${APPDIR}" APPIMAGE="${PERSIST_APPIMAGE}" "${APPDIR}/AppRun" --no-sandbox
