@@ -32,6 +32,17 @@ services:
       - SELKIES_MANUAL_WIDTH=${RES_W:-1920}
       - SELKIES_MANUAL_HEIGHT=${RES_H:-1080}
       - SELKIES_FRAMERATE=${FRAMERATE:-60}
+      # Durcissement (bureau expose sur Internet derriere une simple basic auth) :
+      # pas de sudo ni de terminal pour l'utilisateur, pas de transfert de
+      # fichiers ni de commandes via le client web.
+      # NE PAS utiliser HARDEN_DESKTOP=true : il desactive aussi xdg-open, ce
+      # qui casse la connexion Ankama (page 2FA ouverte dans le navigateur).
+      - DISABLE_SUDO=true
+      - DISABLE_TERMINALS=true
+      - SELKIES_FILE_TRANSFERS=
+      - SELKIES_COMMAND_ENABLED=false
+      - SELKIES_UI_SIDEBAR_SHOW_FILES=false
+      - SELKIES_UI_SIDEBAR_SHOW_APPS=false
       # Decommenter pour FORCER le rendu logiciel (debug / hote sans GPU) :
       # - LIBGL_ALWAYS_SOFTWARE=1
     volumes:

@@ -41,6 +41,10 @@ pas de re-téléchargement ni de re-login après un redémarrage.
   certificat Let's Encrypt automatique.
 
 Protégé par HTTP basic auth par-dessus HTTPS → utiliser un mot de passe fort.
+Le bureau est durci (`docker-compose.yml`) : pas de `sudo` ni de terminal,
+pas de transfert de fichiers ni de commandes depuis le client web.
+`HARDEN_DESKTOP` n'est volontairement pas utilisé : il désactive `xdg-open`,
+indispensable à la connexion Ankama.
 
 ## Commandes
 

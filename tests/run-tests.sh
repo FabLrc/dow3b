@@ -144,6 +144,22 @@ EOF
   run_cfg "compose base valide"        docker-compose.yml
   run_cfg "compose + override dri"     docker-compose.yml docker-compose.gpu-dri.yml
   run_cfg "compose + override nvidia"  docker-compose.yml docker-compose.gpu-nvidia.yml
+  # Durcissement effectif dans la config resolue (base + overrides GPU).
+  for files in "docker-compose.yml" \
+               "docker-compose.yml docker-compose.gpu-dri.yml" \
+               "docker-compose.yml docker-compose.gpu-nvidia.yml"; do
+    args=(); for f in $files; do args+=(-f "$f"); done
+    resolved="$(docker compose --env-file "$tmpenv" "${args[@]}" config 2>/dev/null)"
+    for kv in 'DISABLE_SUDO: "true"' 'DISABLE_TERMINALS: "true"' \
+              'SELKIES_FILE_TRANSFERS: ""' 'SELKIES_COMMAND_ENABLED: "false"'; do
+      if printf '%s\n' "$resolved" | grep -qF -- "$kv"; then ok "durcissement [$files] : $kv"
+      else no "durcissement [$files] : $kv attendu"; fi
+    done
+    # HARDEN_DESKTOP desactive xdg-open => casse la connexion Ankama (2FA).
+    if printf '%s\n' "$resolved" | grep -qiE 'HARDEN_DESKTOP: "?true'; then
+      no "durcissement [$files] : HARDEN_DESKTOP=true casse la connexion Ankama"
+    else ok "durcissement [$files] : pas de HARDEN_DESKTOP"; fi
+  done
   rm -f "$tmpenv"
 else
   sk "docker/compose absent — validation compose ignoree"
