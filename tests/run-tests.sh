@@ -51,6 +51,16 @@ else
 fi
 
 # ============================================================
+section "A. Synchro autostart (volumes /config existants)"
+S6=root/etc/s6-overlay/s6-rc.d
+is_exec  "$S6/init-dofus-autostart/run"
+has_file "$S6/init-dofus-autostart/up"
+# Ordre : apres la copie initiale de la base, avant le lancement d'Openbox.
+has_file "$S6/init-dofus-autostart/dependencies.d/init-selkies-config"
+has_file "$S6/svc-de/dependencies.d/init-dofus-autostart"
+has_file "$S6/user/contents.d/init-dofus-autostart"
+
+# ============================================================
 section "A. Dockerfile"
 contains Dockerfile 'FROM ghcr\.io/linuxserver/baseimage-selkies' "Dockerfile : base selkies epinglee"
 contains Dockerfile 'ARG ANKAMA_APPIMAGE_URL'                     "Dockerfile : URL launcher en build-arg"
@@ -142,8 +152,8 @@ fi
 # ============================================================
 section "C. Linters optionnels"
 if command -v shellcheck >/dev/null 2>&1; then
-  if shellcheck -x root/defaults/autostart >/dev/null 2>&1; then ok "shellcheck autostart"
-  else no "shellcheck autostart (shellcheck root/defaults/autostart)"; fi
+  if shellcheck -x root/defaults/autostart root/etc/s6-overlay/s6-rc.d/init-dofus-autostart/run >/dev/null 2>&1; then ok "shellcheck scripts"
+  else no "shellcheck scripts (shellcheck root/defaults/autostart root/etc/s6-overlay/s6-rc.d/*/run)"; fi
 else sk "shellcheck absent"; fi
 
 if command -v hadolint >/dev/null 2>&1; then
