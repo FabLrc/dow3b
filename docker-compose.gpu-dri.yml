@@ -2,20 +2,15 @@
 # Usage :
 #   docker compose -f docker-compose.yml -f docker-compose.gpu-dri.yml up -d --build
 #
-# Prerequis hote : pilotes Mesa a jour. Ajustez DRINODE/DRI_NODE si votre carte
-# n'est pas sur renderD128 (verifiez avec `ls -l /dev/dri/by-path`).
+# Prerequis hote : pilotes Mesa a jour.
+#
+# Rien d'autre a configurer : l'image de base (init-video) ajoute elle-meme
+# l'utilisateur aux groupes proprietaires de /dev/dri, et detecte le noeud de
+# rendu (AUTO_GPU) pour X (DRI3) comme pour l'encodage. N'ajouter DRINODE /
+# DRI_NODE (bloc "environment") que pour forcer un GPU precis sur un hote
+# multi-GPU : les definir desactive la detection automatique.
 
 services:
   dofus:
     devices:
       - /dev/dri:/dev/dri
-    # Le user "abc" du conteneur doit etre dans les groupes render/video de
-    # l'hote. Remplacez par les GID reels de votre hote si besoin
-    # (`getent group render video`).
-    group_add:
-      - "${RENDER_GID:-989}"
-      - "${VIDEO_GID:-44}"
-    environment:
-      # Noeud de rendu (GPU) et d'encodage VA-API.
-      - DRINODE=${DRINODE:-/dev/dri/renderD128}
-      - DRI_NODE=${DRI_NODE:-/dev/dri/renderD128}

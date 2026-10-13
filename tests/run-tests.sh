@@ -90,9 +90,12 @@ fi
 # ============================================================
 section "A. Overrides GPU"
 contains docker-compose.gpu-dri.yml '/dev/dri:/dev/dri' "override dri : passthrough /dev/dri"
-contains docker-compose.gpu-dri.yml 'DRINODE'           "override dri : noeud de rendu"
+# DRINODE / DRI_NODE definis (meme vides) desactivent la detection AUTO_GPU de la base.
+if grep -vE '^[[:space:]]*#' docker-compose*.yml | grep -Eq 'DRI_?NODE'; then
+  no "override dri : DRINODE/DRI_NODE ne doivent pas etre definis par defaut (AUTO_GPU)"
+else ok "override dri : detection GPU automatique (AUTO_GPU) preservee"; fi
 contains docker-compose.gpu-nvidia.yml 'driver: nvidia' "override nvidia : reservation GPU"
-contains docker-compose.gpu-nvidia.yml 'NVIDIA_DRIVER_CAPABILITIES' "override nvidia : capabilities"
+contains docker-compose.gpu-nvidia.yml 'capabilities:.*graphics' "override nvidia : capability graphics (GL/Vulkan)"
 
 # ============================================================
 section "A. Caddyfile"
