@@ -58,8 +58,9 @@ make logs        # logs du conteneur
 make down        # arrête
 ```
 
-`make test` tourne aussi en CI ([.github/workflows/ci.yml](.github/workflows/ci.yml))
-à chaque push/PR, sans build de l'image.
+La CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) lance `make test` puis
+construit l'image (sans la publier) à chaque push/PR et chaque lundi, pour
+repérer une URL Ankama ou une image de base cassée.
 
 ## Notes
 

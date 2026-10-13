@@ -3,14 +3,22 @@ name: CI
 on:
   push:
   pull_request:
+  # Hebdomadaire : detecte une URL Ankama ou une image de base cassee meme sans
+  # commit (le build echoue si le launcher ne peut plus etre telecharge).
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   static-tests:
-    name: Tests statiques (sans build)
+    name: Tests (sans build)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Active les niveaux C et D des tests. shellcheck, python3, binutils et
       # docker compose v2 sont deja presents sur les runners ubuntu-latest ; on
@@ -20,10 +28,13 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends yamllint squashfs-tools
-          HADOLINT_VERSION="v2.12.0"
-          sudo curl -fsSL -o /usr/local/bin/hadolint \
-            "https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}/hadolint-Linux-x86_64"
-          sudo chmod +x /usr/local/bin/hadolint
+          HADOLINT_VERSION="v2.15.1"
+          HADOLINT_SHA256="c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507"
+          curl -fsSL -o hadolint \
+            "https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}/hadolint-linux-x86_64"
+          echo "${HADOLINT_SHA256}  hadolint" | sha256sum -c -
+          sudo install -m 0755 hadolint /usr/local/bin/hadolint
+          rm hadolint
           echo "--- versions ---"
           shellcheck --version | head -n2
           yamllint --version
@@ -32,3 +43,23 @@ jobs:
 
       - name: Lancer la suite de tests (niveaux A a D)
         run: ./tests/run-tests.sh
+
+  build:
+    name: Build de l'image
+    needs: static-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Image de base + Chrome + launcher : plusieurs Go. On libere de la place
+      # en supprimant des SDK preinstalles inutiles ici.
+      - name: Liberer de l'espace disque
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      # Echoue si un paquet n'existe plus, si l'URL Ankama casse ou si
+      # l'extraction du launcher echoue (cf. Dockerfile). Image non publiee.
+      - name: Construire l'image
+        run: docker build --pull --platform linux/amd64 -t dow3b/dofus:ci .
